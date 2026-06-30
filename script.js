@@ -30,7 +30,6 @@ function showError(message) {
 }
 
 // ===== SYSTEM INITIALIZATION =====
-// PERBAIKAN: Kita hapus fungsi startCamera() manual agar tidak bentrok dengan class Camera milik MediaPipe.
 const hands = new Hands({
     locateFile:(file)=>{
         return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
@@ -44,7 +43,6 @@ hands.setOptions({
     minTrackingConfidence: 0.80
 });
 
-// Cache global untuk menyimpan hasil inferensi terakhir secara non-blocking
 let latestHandResults = null;
 hands.onResults((results) => { latestHandResults = results; });
 
@@ -59,15 +57,13 @@ faceDetection.setOptions({
 let latestFaceResults = null;
 faceDetection.onResults((results) => { latestFaceResults = results; });
 
-// MediaPipe Camera Utility (Mengontrol hardware kamera secara tunggal dan aman)
+// MediaPipe Camera Utility
 const camera = new Camera(video, {
     onFrame: async () => {
         try {
             await hands.send({ image: video });
             await faceDetection.send({ image: video });
-        } catch(e) {
-            // Mencegah crash jika ada frame drop di awal pemuatan
-        }
+        } catch(e) {}
     },
     width: 1280,
     height: 720
@@ -109,7 +105,7 @@ function processAndRender(timestamp) {
     fps = Math.round(1000 / (timestamp - lastTime));
     lastTime = timestamp;
 
-    // Animasi Scanline Global
+    // Animasi Scanline
     scanLineY = (scanLineY + 2) % canvas.height;
     if (pulseDirection === 1) {
         pulseScale += 0.005;
@@ -119,7 +115,7 @@ function processAndRender(timestamp) {
         if (pulseScale <= 0.95) pulseDirection = 1;
     }
 
-    // Menyelaraskan resolusi canvas murni dengan resolusi output video asli browser
+    // Mengunci resolusi canvas agar 100% sama dengan video asli
     if (video.videoWidth) {
         canvas.width = video.videoWidth;
         canvas.height = video.videoHeight;
@@ -130,7 +126,7 @@ function processAndRender(timestamp) {
     
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    // 1. CYBER HUD BACKGROUND: Grid Transparan Seluruh Layar
+    // 1. CYBER HUD BACKGROUND: Grid Transparan
     ctx.strokeStyle = "rgba(0, 255, 128, 0.04)";
     ctx.lineWidth = 1;
     const gridSize = 40;
@@ -147,9 +143,7 @@ function processAndRender(timestamp) {
     ctx.fillText(`SYS_FPS: ${fps} | VISION_MODE: ACTIVE`, 20, 30);
 
     // 2. FACE PROCESSING (Smoothing, Pixelate & Cyber Box)
-    let faceFoundThisFrame = false;
     if (latestFaceResults && latestFaceResults.detections && latestFaceResults.detections.length > 0) {
-        faceFoundThisFrame = true;
         const rawFace = latestFaceResults.detections[0];
         const bbox = rawFace.boundingBox;
         
@@ -175,13 +169,12 @@ function processAndRender(timestamp) {
         const fX = (smoothState.face.box.xCenter * canvas.width) - fW / 2;
         const fY = (smoothState.face.box.yCenter * canvas.height) - fH / 2;
 
-        // Efek Pixelate Wajah (Akurat menempel di atas wajah)
+        // PERBAIKAN PIXELATE: Sinkronisasi posisi koordinat sampling terhadap video asli
         const sampleSize = 14;
         for (let y = Math.max(0, fY); y < Math.min(canvas.height, fY + fH); y += sampleSize) {
             for (let x = Math.max(0, fX); x < Math.min(canvas.width, fX + fW); x += sampleSize) {
-                const mirrorX = canvas.width - x - sampleSize; 
-                if (mirrorX >= 0 && mirrorX < canvas.width) {
-                    ctx.drawImage(video, mirrorX, y, sampleSize, sampleSize, x, y, sampleSize, sampleSize);
+                if (x >= 0 && x + sampleSize <= canvas.width) {
+                    ctx.drawImage(video, x, y, sampleSize, sampleSize, x, y, sampleSize, sampleSize);
                 }
             }
         }
@@ -198,12 +191,13 @@ function processAndRender(timestamp) {
         ctx.restore();
     }
 
-    // 3. HANDS PROCESSING & DYNAMIC SELECTION BOX RE-ALIGNMENT
+    // 3. HANDS PROCESSING & ACCURATE RE-ALIGNMENT
     let detectedIndices = new Set();
     if (latestHandResults && latestHandResults.multiHandLandmarks) {
         latestHandResults.multiHandLandmarks.forEach((landmarks, idx) => {
             const classification = latestHandResults.multiHandedness[idx];
-            const sideLabel = classification.label === "Left" ? "RIGHT" : "LEFT";
+            // Karena CSS di-mirror scaleX(-1), label kiri dan kanan ditukar agar pas dengan perspektif mata user
+            const sideLabel = classification.label === "Left" ? "LEFT" : "RIGHT";
             const confidence = classification.score;
 
             let state = smoothState.hands[idx] || smoothState.hands[0];
@@ -238,7 +232,7 @@ function processAndRender(timestamp) {
         ctx.save();
         ctx.globalAlpha = hand.fade;
 
-        // Garis Sambungan Tangan (Hijau Neon)
+        // Garis Sambungan Tangan (Hijau Neon) - Tepat di atas kerangka tangan asli
         ctx.strokeStyle = "rgba(0, 255, 128, 0.8)";
         ctx.shadowBlur = 10;
         ctx.shadowColor = "rgba(0, 255, 128, 0.5)";
@@ -278,7 +272,7 @@ function processAndRender(timestamp) {
         ctx.fillText(`POS_Y  : ${Math.round(wristPos.y * canvas.height)}`, hX, hY + 56);
         ctx.fillText(`STATUS : ENGAGED`, hX, hY + 70);
 
-        // ===== AI SELECTION BOX STRETCH INTEGRATION =====
+        // ===== AI SELECTION BOX ACCURATE FIX =====
         const thumb = hand.landmarks[4];
         const index = hand.landmarks[8];
         
@@ -314,16 +308,16 @@ function processAndRender(timestamp) {
         const boxHeight = sb.bottom - sb.top;
 
         if (boxWidth > 2 && boxHeight > 2) {
-            // A. DYNAMIC STRATCH BLUR AREA
+            // A. PERBAIKAN DYNAMIC BLUR AREA: Menyamakan orientasi dengan memotong klip video non-mirror
             ctx.save();
             ctx.beginPath();
             ctx.rect(sb.left, sb.top, boxWidth, boxHeight);
             ctx.clip();
             
             ctx.save();
-            ctx.scale(-1, 1);
+            // Menghilangkan scale(-1, 1) internal di sini agar potongan video kliping sejajar dengan matrix CSS terluar
             ctx.filter = "blur(12px) brightness(1.1) contrast(1.1)";
-            ctx.drawImage(video, -canvas.width, 0, canvas.width, canvas.height);
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
             ctx.restore();
             
             // B. SCAN LINE EFFECT
