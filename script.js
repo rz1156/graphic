@@ -115,13 +115,13 @@ function processAndRender(timestamp) {
         if (pulseScale <= 0.95) pulseDirection = 1;
     }
 
-    // Mengunci resolusi canvas agar 100% sama dengan video asli
-    if (video.videoWidth) {
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
+    // LOCK: Kunci ukuran piksel canvas 100% sama dengan ukuran tampilan elemen video di layar monitor (Mencegah pergeseran frame ke bawah)
+    if (video.clientWidth && video.clientHeight) {
+        canvas.width = video.clientWidth;
+        canvas.height = video.clientHeight;
     } else {
-        canvas.width = 1280;
-        canvas.height = 720;
+        canvas.width = 900;
+        canvas.height = 506; // Fallback aspek rasio kontainer 16:9 Anda
     }
     
     ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -169,7 +169,7 @@ function processAndRender(timestamp) {
         const fX = (smoothState.face.box.xCenter * canvas.width) - fW / 2;
         const fY = (smoothState.face.box.yCenter * canvas.height) - fH / 2;
 
-        // PERBAIKAN PIXELATE: Sinkronisasi posisi koordinat sampling terhadap video asli
+        // Efek Pixelate Wajah
         const sampleSize = 14;
         for (let y = Math.max(0, fY); y < Math.min(canvas.height, fY + fH); y += sampleSize) {
             for (let x = Math.max(0, fX); x < Math.min(canvas.width, fX + fW); x += sampleSize) {
@@ -196,7 +196,6 @@ function processAndRender(timestamp) {
     if (latestHandResults && latestHandResults.multiHandLandmarks) {
         latestHandResults.multiHandLandmarks.forEach((landmarks, idx) => {
             const classification = latestHandResults.multiHandedness[idx];
-            // Karena CSS di-mirror scaleX(-1), label kiri dan kanan ditukar agar pas dengan perspektif mata user
             const sideLabel = classification.label === "Left" ? "LEFT" : "RIGHT";
             const confidence = classification.score;
 
@@ -232,7 +231,7 @@ function processAndRender(timestamp) {
         ctx.save();
         ctx.globalAlpha = hand.fade;
 
-        // Garis Sambungan Tangan (Hijau Neon) - Tepat di atas kerangka tangan asli
+        // Garis Sambungan Tangan
         ctx.strokeStyle = "rgba(0, 255, 128, 0.8)";
         ctx.shadowBlur = 10;
         ctx.shadowColor = "rgba(0, 255, 128, 0.5)";
@@ -308,14 +307,13 @@ function processAndRender(timestamp) {
         const boxHeight = sb.bottom - sb.top;
 
         if (boxWidth > 2 && boxHeight > 2) {
-            // A. PERBAIKAN DYNAMIC BLUR AREA: Menyamakan orientasi dengan memotong klip video non-mirror
+            // A. DYNAMIC BLUR AREA (Menyatu sempurna mengikuti kliping display canvas)
             ctx.save();
             ctx.beginPath();
             ctx.rect(sb.left, sb.top, boxWidth, boxHeight);
             ctx.clip();
             
             ctx.save();
-            // Menghilangkan scale(-1, 1) internal di sini agar potongan video kliping sejajar dengan matrix CSS terluar
             ctx.filter = "blur(12px) brightness(1.1) contrast(1.1)";
             ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
             ctx.restore();
