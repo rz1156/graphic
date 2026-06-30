@@ -115,13 +115,13 @@ function processAndRender(timestamp) {
         if (pulseScale <= 0.95) pulseDirection = 1;
     }
 
-    // LOCK: Kunci ukuran piksel canvas 100% sama dengan ukuran tampilan elemen video di layar monitor (Mencegah pergeseran frame ke bawah)
-    if (video.clientWidth && video.clientHeight) {
-        canvas.width = video.clientWidth;
-        canvas.height = video.clientHeight;
+    // PERBAIKAN TOTAL: Mengunci resolusi internal piksel berdasarkan video mentah dari hardware
+    if (video.videoWidth && video.videoHeight) {
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
     } else {
-        canvas.width = 900;
-        canvas.height = 506; // Fallback aspek rasio kontainer 16:9 Anda
+        canvas.width = 1280;
+        canvas.height = 720;
     }
     
     ctx.clearRect(0, 0, canvas.width, canvas.height);
